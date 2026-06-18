@@ -29,6 +29,7 @@ source=("https://cache.ruby-lang.org/pub/ruby/${pkgver2%.*}/${_realname}-${pkgve
         0010-Mingw32-Use-ATOMIC_PTR-functions-to-avoid-compiler-w.patch
         0011-Add-windows-arm64-clang-build-support.patch
         0012-Fix-arm64-coroutine-implementation-on-Windows-TEB-sa.patch
+        0013-Use-gperf-3.1-to-generate-ANSI-C-code.patch
         ruby.ico
         rubyw.ico)
 
@@ -43,6 +44,7 @@ sha256sums=('4b352d0f7ec384e332e3e44cdbfdcd5ff2d594af3c8296b5636c710975149e23'
             '5947650b4c503cbc9fc176479b70e18e6d8ca2b21ddcf3763ee97972140420f7'
             'd5a7a6a1696cabb3d6859c1e556c56308d9e3386049d35dd53fdf025b8495be5'
             '3fb538320d701027382393ae05e75716be397a011595ec9e6a5b6cea719e62da'
+            '0ef1ce0773f95b3ddd507fb9db3750fc66c3025e0f0ad9124dfdfe95b1c291f4'
             '6c80ba2ca49840e387a08b7fedc6e7acd298ac2ec853155209efb2af20397b22'
             'c30fb04ac0e88ba634daaa811a81ea5a75027646617b895acd14df9518a4a55a')
 
@@ -58,6 +60,7 @@ prepare() {
   patch -p1 -i ${srcdir}/0010-Mingw32-Use-ATOMIC_PTR-functions-to-avoid-compiler-w.patch
   patch -p1 -i ${srcdir}/0011-Add-windows-arm64-clang-build-support.patch
   patch -p1 -i ${srcdir}/0012-Fix-arm64-coroutine-implementation-on-Windows-TEB-sa.patch
+  patch -p1 -i ${srcdir}/0013-Use-gperf-3.1-to-generate-ANSI-C-code.patch
   autoreconf -fi
   touch .ri2_prepared
 }
@@ -67,12 +70,12 @@ build() {
   CPPFLAGS+=" -DFD_SETSIZE=2048"
   CFLAGS="-O3 -fno-fast-math -fstack-protector-strong"
   LDFLAGS="-pipe -s -fstack-protector-strong"
-  configure_extra_vars=(ac_cv_prog_cc_c23=no)
+  configure_extra_vars=()
   make_jobs=""
 
   if [[ "${MSYSTEM}" == "CLANGARM64" ]]; then
     LDFLAGS+=" -lpthread"
-    configure_extra_vars+=(--with-coroutine=arm64 extra_warnflags="-Wno-shorten-64-to-32")
+    configure_extra_vars+=(--with-coroutine=arm64 extra_warnflags="-Wno-shorten-64-to-32" ac_cv_prog_cc_c23=no)
     # Parallel make crashes clang on this toolchain (corrupted/truncated
     # output, no clean error -- looks like resource pressure from several
     # header-heavy translation units compiling at once). Force serial.

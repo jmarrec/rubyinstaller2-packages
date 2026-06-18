@@ -1,0 +1,39 @@
+From b7aca78cee41f59d7724c9fff7805dcb4f9411e1 Mon Sep 17 00:00:00 2001
+From: Nobuyoshi Nakada <nobu@ruby-lang.org>
+Date: Fri, 21 Jun 2024 16:00:16 +0900
+Subject: [PATCH] [ruby/io-console] Use gperf 3.1 to generate ANSI-C code
+
+https://github.com/ruby/io-console/commit/3798aae42d
+---
+ ext/io/console/depend        | 2 +-
+ ext/io/console/win32_vk.list | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ext/io/console/depend b/ext/io/console/depend
+index 06ccdde70da..36747ef5839 100644
+--- a/ext/io/console/depend
++++ b/ext/io/console/depend
+@@ -185,7 +185,7 @@ win32_vk.inc: win32_vk.list
+ 	-e 'n=$$F[1] and (n.strip!; /\AVK_/=~n) and' \
+ 	-e   'puts(%[#ifndef #{n}\n# define #{n} UNDEFINED_VK\n#endif])' \
+ 	$< && \
+-	gperf --ignore-case -E -C -P -p -j1 -i 1 -g -o -t -K ofs -N console_win32_vk -k* $< \
++	gperf --ignore-case -L ANSI-C -E -C -P -p -j1 -i 1 -g -o -t -K ofs -N console_win32_vk -k* $< \
+ 	| sed -f $(top_srcdir)/tool/gperf.sed \
+ 	) > $(@F)
+ 
+diff --git a/ext/io/console/win32_vk.list b/ext/io/console/win32_vk.list
+index 7909a4d1f0a..5df3d6da57a 100644
+--- a/ext/io/console/win32_vk.list
++++ b/ext/io/console/win32_vk.list
+@@ -1,6 +1,6 @@
+ %{
+ struct vktable {short ofs; unsigned short vk;};
+-static const struct vktable *console_win32_vk(/*!ANSI{*/const char *, unsigned int/*}!ANSI*/);
++static const struct vktable *console_win32_vk(const char *, size_t);
+ %}
+ struct vktable
+ %%
+-- 
+2.50.1 (Apple Git-155)
+
