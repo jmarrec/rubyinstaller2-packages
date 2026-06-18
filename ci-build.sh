@@ -14,7 +14,7 @@ git remote add upstream 'https://github.com/oneclick/rubyinstaller2-packages'
 git fetch --quiet upstream
 
 # Decrypt and import private sigature key
-deploy_enabled && (gpg --batch --passphrase "${GPGPASSWD}" --decrypt appveyor-key.asc.asc | gpg --import)
+deploy_enabled && (gpg --batch --passphrase "${GPGPASSWD}" --decrypt julien-marrec-key.asc.asc | gpg --import)
 # Add key used for ARM64 builds
 gpg --import lars@greiz-reinsdorf.de.key.asc
 
