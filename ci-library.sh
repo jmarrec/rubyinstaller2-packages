@@ -94,8 +94,9 @@ _build_add() {
 # Download previous artifact
 _download_previous() {
     local filenames=("${@}")
+    local repo="${DEPLOY_REPO_NAME:-oneclick/rubyinstaller2-packages}"
     for filename in "${filenames[@]}"; do
-        if ! wget --no-verbose "https://github.com/oneclick/rubyinstaller2-packages/releases/download/ci.ri2/${filename}"; then
+        if ! wget --no-verbose "https://github.com/${repo}/releases/download/ci.ri2/${filename}"; then
             rm -f "${filenames[@]}"
             return 1
         fi
@@ -155,12 +156,15 @@ create_pacman_repository() {
     local counter=0
     until _download_previous "${name}".{db,files}{,.tar.zst}{,.sig}
     do
+        if [[ counter -eq $max_retry ]]; then
+            echo "No previous repository database found, creating a new one."
+            break
+        fi
         sleep 10
-        [[ counter -eq $max_retry ]] && echo "Download failed!" && exit 1
         echo "Trying again. Try #$counter"
         ((counter++))
     done
-    
+
     # Add files to repository if any
     files=(*.pkg.tar.zst)
     if [ -e "${files[0]}" ]; then
