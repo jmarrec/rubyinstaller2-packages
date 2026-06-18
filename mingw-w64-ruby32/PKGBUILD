@@ -2,22 +2,23 @@ _realname=ruby
 pkgbase=mingw-w64-ruby32
 pkgname="${MINGW_PACKAGE_PREFIX}-ruby32"
 # version used by MRI
-pkgver2=3.2.11
+pkgver2=3.2.2
 # version used by pacman
 pkgver="${pkgver2/-/.}"
 pkgrel=1
 pkgdesc="An object-oriented language for quick and easy programming (mingw-w64)"
 arch=('any')
-mingw_arch=('mingw32' 'ucrt64')
+mingw_arch=('mingw32' 'ucrt64' 'clangarm64')
 url="https://www.ruby-lang.org/en"
 license=("BSD, custom")
-makedepends=("${MINGW_PACKAGE_PREFIX}-gcc" "${MINGW_PACKAGE_PREFIX}-pkg-config")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc" "${MINGW_PACKAGE_PREFIX}-pkgconf")
 depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs"
          "${MINGW_PACKAGE_PREFIX}-gmp"
          "${MINGW_PACKAGE_PREFIX}-libffi"
          "${MINGW_PACKAGE_PREFIX}-libyaml"
          "${MINGW_PACKAGE_PREFIX}-openssl>=3.0.0"
-         "${MINGW_PACKAGE_PREFIX}-zlib")
+         "${MINGW_PACKAGE_PREFIX}-zlib"
+         "${MINGW_PACKAGE_PREFIX}-libwinpthread-git")
 options=('staticlibs' 'strip')
 source=("https://cache.ruby-lang.org/pub/ruby/${pkgver2%.*}/${_realname}-${pkgver2}.tar.xz"
         0001-Add-C-ext-win32-dll_directory-as-an-alternative-to-f.patch
@@ -26,23 +27,26 @@ source=("https://cache.ruby-lang.org/pub/ruby/${pkgver2%.*}/${_realname}-${pkgve
         0006-Windows-Prefer-USERPROFILE-over-HOMEPATH-on-startup-.patch
         0009-Win32-Return-registry-strings-as-UTF-8.patch
         0010-Mingw32-Use-ATOMIC_PTR-functions-to-avoid-compiler-w.patch
+        0011-Add-windows-arm64-clang-build-support.patch
         ruby.ico
         rubyw.ico)
 
 # To update SHA256 hashs run: ridk exec sh -c "updpkgsums PKGBUILD"
 
-sha256sums=('c13aec0c206725d5d356acbae6e5fd8bffd92dc325aec14fd5dd7795d4b763d2'
-            'a50c81ab8c178689485257f8eaa70bd8184b878a798780084668f838912e2832'
-            'da079dbfdc3d4e1b976ed15d58244ed6e0df201ec829bead578fb4a7177b9cab'
-            'f26122cca5e289801c0dde1f54643a960246a69691c6c8b9bccb27e536344f69'
-            '7bba11585dc597281e1c616f00a482016d57e5fb983f02fb05ed6260a9858ffd'
-            '5f84680f8cbce37b617f132e09009c111c78044d92378562456d8814db449346'
-            '5947650b4c503cbc9fc176479b70e18e6d8ca2b21ddcf3763ee97972140420f7'
+sha256sums=('4b352d0f7ec384e332e3e44cdbfdcd5ff2d594af3c8296b5636c710975149e23'
+            '80699df151442be875b0bdde7ecdece67232d4585a258618e421c0f1047a162f'
+            '41a4e7c9ca766785627461848761d451180fdddabdbb9d942e5dbb2519781f1d'
+            'bc1c65b58c10e0b4a37a363be6128a9819f9c17b53cc18f5eb418664d13f7b4c'
+            '5acef4e93449c2c170455092e2594ea927d314bd28824f64bf71f25a28f1872a'
+            '650978034f3408677c3036c0876765d431716b2c70880ff812aaa5619c8854f5'
+            'd460915badad751871e077f881148ca53be99864398376247a75b0341b7fb3dc'
+            '54617acfe043798904dab151efeba2c13595c9fe6cf45f3c1fef5632649f8c0d'
             '6c80ba2ca49840e387a08b7fedc6e7acd298ac2ec853155209efb2af20397b22'
             'c30fb04ac0e88ba634daaa811a81ea5a75027646617b895acd14df9518a4a55a')
 
 prepare() {
   cd ${srcdir}/${_realname}-${pkgver2}
+  [[ -f .ri2_prepared ]] && return
   rm -rf ext/win32/dll_directory
   patch -p1 -i ${srcdir}/0001-Add-C-ext-win32-dll_directory-as-an-alternative-to-f.patch
   patch -p1 -i ${srcdir}/0002-Don-t-add-an-exe-file-manifest.patch
@@ -50,7 +54,9 @@ prepare() {
   patch -p1 -i ${srcdir}/0006-Windows-Prefer-USERPROFILE-over-HOMEPATH-on-startup-.patch -l
   patch -p1 -i ${srcdir}/0009-Win32-Return-registry-strings-as-UTF-8.patch
   patch -p1 -i ${srcdir}/0010-Mingw32-Use-ATOMIC_PTR-functions-to-avoid-compiler-w.patch
+  patch -p1 -i ${srcdir}/0011-Add-windows-arm64-clang-build-support.patch
   autoreconf -fi
+  touch .ri2_prepared
 }
 
 build() {
@@ -58,6 +64,19 @@ build() {
   CPPFLAGS+=" -DFD_SETSIZE=2048"
   CFLAGS="-O3 -fno-fast-math -fstack-protector-strong"
   LDFLAGS="-pipe -s -fstack-protector-strong"
+  configure_extra_vars=()
+  make_jobs=""
+
+  if [[ "${MSYSTEM}" == "CLANGARM64" ]]; then
+    LDFLAGS+=" -lpthread"
+    configure_extra_vars+=(--with-coroutine=arm64 extra_warnflags="-Wno-shorten-64-to-32" ac_cv_prog_cc_c23=no)
+    # Parallel make crashes clang on this toolchain (corrupted/truncated
+    # output, no clean error -- looks like resource pressure from several
+    # header-heavy translation units compiling at once). Force serial.
+    # MAKEFLAGS isn't reliable here since makepkg.conf recomputes it from
+    # nproc regardless of what's exported beforehand.
+    make_jobs="-j1"
+  fi
 
   [[ -d "${srcdir}/build-${MINGW_CHOST}" ]] && rm -rf "${srcdir}/build-${MINGW_CHOST}"
   mkdir -p "${srcdir}/build-${MINGW_CHOST}" && cd "${srcdir}/build-${MINGW_CHOST}"
@@ -69,9 +88,10 @@ build() {
     --build=${MINGW_CHOST} \
     --host=${MINGW_CHOST} \
     --target=${MINGW_CHOST} \
-    --with-out-ext=readline,pty,syslog
+    --with-out-ext=readline,pty,syslog \
+    "${configure_extra_vars[@]}"
 
-  make showflags main
+  make ${make_jobs} showflags main
   echo "Generate RI and HTML documentation"
   # Make rdoc outputs so many lines -> print dots only
   make rdoc html 2>&1 | ./miniruby -ne "STDERR.print '.'"

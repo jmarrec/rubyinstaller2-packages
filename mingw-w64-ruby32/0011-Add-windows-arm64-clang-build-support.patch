@@ -1,0 +1,544 @@
+diff --git a/configure.ac b/configure.ac
+index 151a0da970c..6b6b3b74ae8 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1194,8 +1194,6 @@ main()
+ 		ac_cv_func_gmtime_r=yes
+ 		rb_cv_large_fd_select=yes
+ 		ac_cv_type_struct_timeval=yes
+-                ac_cv_func_clock_gettime=yes
+-                ac_cv_func_clock_getres=yes
+ 		ac_cv_func_malloc_usable_size=no
+ 		ac_cv_type_off_t=yes
+ 		ac_cv_sizeof_off_t=8
+diff --git a/coroutine/arm64/Context.asm b/coroutine/arm64/Context.asm
+new file mode 100644
+index 00000000000..866fa628e78
+--- /dev/null
++++ b/coroutine/arm64/Context.asm
+@@ -0,0 +1,81 @@
++	TTL	coroutine/arm64/Context.asm
++
++	AREA	|.drectve|, DRECTVE
++
++	EXPORT	|coroutine_transfer|
++
++	AREA	|.text$mn|, CODE, ARM64
++
++;; Add more space for certain TEB values on each stack
++TEB_OFFSET EQU 0x20
++
++;; Incomplete implementation
++coroutine_transfer PROC
++	; Make space on the stack for caller registers
++	sub sp, sp, 0xa0 + TEB_OFFSET
++
++	; Save caller registers
++	stp d8, d9, [sp, 0x00 + TEB_OFFSET]
++	stp d10, d11, [sp, 0x10 + TEB_OFFSET]
++	stp d12, d13, [sp, 0x20 + TEB_OFFSET]
++	stp d14, d15, [sp, 0x30 + TEB_OFFSET]
++	stp x19, x20, [sp, 0x40 + TEB_OFFSET]
++	stp x21, x22, [sp, 0x50 + TEB_OFFSET]
++	stp x23, x24, [sp, 0x60 + TEB_OFFSET]
++	stp x25, x26, [sp, 0x70 + TEB_OFFSET]
++	stp x27, x28, [sp, 0x80 + TEB_OFFSET]
++	stp x29, x30, [sp, 0x90 + TEB_OFFSET]
++
++	;; Save certain values from Thread Environment Block (TEB) x18
++	;; points to the TEB on Windows
++	;; Read TeStackBase and TeStackLimit at ksarm64.h from TEB
++	ldp  x5,  x6,  [x18, #0x08]
++	;; Save them
++	stp  x5,  x6,  [sp, #0x00]
++	;; Read TeDeallocationStack at ksarm64.h from TEB
++	ldr  x5, [x18, #0x1478]
++	;; Read TeFiberData at ksarm64.h from TEB
++	ldr  x6, [x18, #0x20]
++	;; Save current fiber data and deallocation stack
++	stp  x5,  x6,  [sp, #0x10]
++
++	; Save stack pointer to x0 (first argument)
++	mov x2, sp
++	str x2, [x0, 0]
++
++	; Load stack pointer from x1 (second argument)
++	ldr x3, [x1, 0]
++	mov sp, x3
++
++	;; Restore stack base and limit
++	ldp  x5,  x6,  [sp, #0x00]
++	;; Write TeStackBase and TeStackLimit at ksarm64.h to TEB
++	stp  x5,  x6,  [x18, #0x08]
++	;; Restore fiber data and deallocation stack
++	ldp  x5,  x6,  [sp, #0x10]
++	;; Write TeDeallocationStack at ksarm64.h to TEB
++	str  x5, [x18, #0x1478]
++	;; Write TeFiberData at ksarm64.h to TEB
++	str  x6, [x18, #0x20]
++
++	; Restore caller registers
++	ldp d8, d9, [sp, 0x00 + TEB_OFFSET]
++	ldp d10, d11, [sp, 0x10 + TEB_OFFSET]
++	ldp d12, d13, [sp, 0x20 + TEB_OFFSET]
++	ldp d14, d15, [sp, 0x30 + TEB_OFFSET]
++	ldp x19, x20, [sp, 0x40 + TEB_OFFSET]
++	ldp x21, x22, [sp, 0x50 + TEB_OFFSET]
++	ldp x23, x24, [sp, 0x60 + TEB_OFFSET]
++	ldp x25, x26, [sp, 0x70 + TEB_OFFSET]
++	ldp x27, x28, [sp, 0x80 + TEB_OFFSET]
++	ldp x29, x30, [sp, 0x90 + TEB_OFFSET]
++
++	; Pop stack frame
++	add sp, sp, 0xa0 + TEB_OFFSET
++
++	; Jump to return address (in x30)
++	ret
++
++	endp
++
++	end
+diff --git a/coroutine/arm64/Context.h b/coroutine/arm64/Context.h
+index 1472621f480..fe437e2cb33 100644
+--- a/coroutine/arm64/Context.h
++++ b/coroutine/arm64/Context.h
+@@ -15,7 +15,13 @@
+ #include <stdint.h>
+ #include <string.h>
+ 
++#if defined __GNUC__
+ #define COROUTINE __attribute__((noreturn)) void
++#define COROUTINE_DECL COROUTINE
++#elif defined _MSC_VER
++#define COROUTINE __declspec(noreturn) void
++#define COROUTINE_DECL void
++#endif
+ 
+ enum {COROUTINE_REGISTERS = 0xb0 / 8};
+ 
+@@ -44,7 +50,7 @@ struct coroutine_context
+ #endif
+ };
+ 
+-typedef COROUTINE(* coroutine_start)(struct coroutine_context *from, struct coroutine_context *self);
++typedef COROUTINE_DECL(* coroutine_start)(struct coroutine_context *from, struct coroutine_context *self);
+ 
+ static inline void coroutine_initialize_main(struct coroutine_context * context) {
+     context->stack_pointer = NULL;
+diff --git a/include/ruby/atomic.h b/include/ruby/atomic.h
+index 3eb80fbf7d1..d4b7023f9ed 100644
+--- a/include/ruby/atomic.h
++++ b/include/ruby/atomic.h
+@@ -404,7 +404,7 @@ rbimpl_atomic_size_add(volatile size_t *ptr, size_t val)
+ #elif defined(HAVE_GCC_SYNC_BUILTINS)
+     __sync_add_and_fetch(ptr, val);
+ 
+-#elif defined(_WIN32) && defined(_M_AMD64)
++#elif defined(_WIN64)
+     /* Ditto for `InterlockeExchangedAdd`. */
+     InterlockedExchangeAdd64(ptr, val);
+ 
+@@ -456,7 +456,7 @@ rbimpl_atomic_size_inc(volatile size_t *ptr)
+ #elif defined(HAVE_GCC_ATOMIC_BUILTINS) || defined(HAVE_GCC_SYNC_BUILTINS)
+     rbimpl_atomic_size_add(ptr, 1);
+ 
+-#elif defined(_WIN32) && defined(_M_AMD64)
++#elif defined(_WIN64)
+     InterlockedIncrement64(ptr);
+ 
+ #elif defined(__sun) && defined(HAVE_ATOMIC_H) && (defined(_LP64) || defined(_I32LPx))
+@@ -538,7 +538,7 @@ rbimpl_atomic_size_sub(volatile size_t *ptr, size_t val)
+ #elif defined(HAVE_GCC_SYNC_BUILTINS)
+     __sync_sub_and_fetch(ptr, val);
+ 
+-#elif defined(_WIN32) && defined(_M_AMD64)
++#elif defined(_WIN64)
+     const ssize_t neg = -1;
+     InterlockedExchangeAdd64(ptr, neg * val);
+ 
+@@ -590,7 +590,7 @@ rbimpl_atomic_size_dec(volatile size_t *ptr)
+ #elif defined(HAVE_GCC_ATOMIC_BUILTINS) || defined(HAVE_GCC_SYNC_BUILTINS)
+     rbimpl_atomic_size_sub(ptr, 1);
+ 
+-#elif defined(_WIN32) && defined(_M_AMD64)
++#elif defined(_WIN64)
+     InterlockedDecrement64(ptr);
+ 
+ #elif defined(__sun) && defined(HAVE_ATOMIC_H) && (defined(_LP64) || defined(_I32LPx))
+@@ -688,7 +688,7 @@ rbimpl_atomic_size_exchange(volatile size_t *ptr, size_t val)
+ #elif defined(HAVE_GCC_SYNC_BUILTINS)
+     return __sync_lock_test_and_set(ptr, val);
+ 
+-#elif defined(_WIN32) && defined(_M_AMD64)
++#elif defined(_WIN64)
+     return InterlockedExchange64(ptr, val);
+ 
+ #elif defined(__sun) && defined(HAVE_ATOMIC_H) && (defined(_LP64) || defined(_I32LPx))
+@@ -823,7 +823,7 @@ rbimpl_atomic_size_cas(volatile size_t *ptr, size_t oldval, size_t newval)
+ #elif defined(HAVE_GCC_SYNC_BUILTINS)
+     return __sync_val_compare_and_swap(ptr, oldval, newval);
+ 
+-#elif defined(_WIN32) && defined(_M_AMD64)
++#elif defined(_WIN64)
+     return InterlockedCompareExchange64(ptr, newval, oldval);
+ 
+ #elif defined(__sun) && defined(HAVE_ATOMIC_H) && (defined(_LP64) || defined(_I32LPx))
+diff --git a/include/ruby/internal/anyargs.h b/include/ruby/internal/anyargs.h
+index e3e1b6166db..e4c6d155cc7 100644
+--- a/include/ruby/internal/anyargs.h
++++ b/include/ruby/internal/anyargs.h
+@@ -84,12 +84,15 @@
+ 
+ #elif defined(_WIN32) || defined(__CYGWIN__)
+ # /* Skip due to [Bug #16134] */
++# define RBIMPL_CAST_FN_PTR 1
+ 
+ #elif ! RBIMPL_HAS_ATTRIBUTE(transparent_union)
+ # /* :TODO: improve here, please find a way to support. */
++# define RBIMPL_CAST_FN_PTR 1
+ 
+ #elif ! defined(HAVE_VA_ARGS_MACRO)
+ # /* :TODO: improve here, please find a way to support. */
++# define RBIMPL_CAST_FN_PTR 1
+ 
+ #else
+ # /** @cond INTERNAL_MACRO */
+@@ -348,6 +351,25 @@ RBIMPL_ANYARGS_DECL(rb_define_method, VALUE, const char *)
+ 
+ #endif /* __cplusplus */
+ 
++#if defined(RBIMPL_CAST_FN_PTR) && !defined(__cplusplus)
++/* In C23, K&R style prototypes are gone and so `void foo(ANYARGS)` became
++ * equivalent to `void foo(void)` unlike in earlier versions. This is a problem
++ * for rb_define_* functions since that makes all valid functions one can pass
++ * trip -Wincompatible-pointer-types, which we treat as errors. This is mostly
++ * not a problem for the __builtin_choose_expr path, but outside of that we
++ * need to add a cast for compatibility.
++ */
++#define rb_define_method(klass, mid, func, arity)           rb_define_method((klass), (mid), (VALUE (*)(ANYARGS))(func), (arity))
++#define rb_define_method_id(klass, mid, func, arity)        rb_define_method_id((klass), (mid), (VALUE (*)(ANYARGS))(func), (arity))
++#define rb_define_singleton_method(obj, mid, func, arity)   rb_define_singleton_method((obj), (mid), (VALUE (*)(ANYARGS))(func), (arity))
++#define rb_define_protected_method(klass, mid, func, arity) rb_define_protected_method((klass), (mid), (VALUE (*)(ANYARGS))(func), (arity))
++#define rb_define_private_method(klass, mid, func, arity)   rb_define_private_method((klass), (mid), (VALUE (*)(ANYARGS))(func), (arity))
++#define rb_define_module_function(mod, mid, func, arity)    rb_define_module_function((mod), (mid), (VALUE (*)(ANYARGS))(func), (arity))
++#define rb_define_global_function(mid, func, arity)         rb_define_global_function((mid), (VALUE (*)(ANYARGS))(func), (arity))
++
++#undef RBIMPL_CAST_FN_PTR
++#endif /* defined(RBIMPL_CAST_FN_PTR) && !defined(__cplusplus) */
++
+ /**
+  * This  macro is  to properly  cast  a function  parameter of  *_define_method
+  * family.  It  has been  around since  1.x era so  you can  maximise backwards
+diff --git a/include/ruby/internal/memory.h b/include/ruby/internal/memory.h
+index 6884db195de..e1c993ec84c 100644
+--- a/include/ruby/internal/memory.h
++++ b/include/ruby/internal/memory.h
+@@ -40,7 +40,12 @@
+ 
+ #if defined(_MSC_VER) && defined(_WIN64)
+ # include <intrin.h>
++# if defined(_M_AMD64)
+ # pragma intrinsic(_umul128)
++# endif
++# if defined(_M_ARM64)
++# pragma intrinsic(__umulh)
++# endif
+ #endif
+ 
+ #include "ruby/internal/attr/alloc_size.h"
+@@ -577,12 +582,16 @@ rbimpl_size_mul_overflow(size_t x, size_t y)
+     ret.left  = dz > SIZE_MAX;
+     ret.right = RBIMPL_CAST((size_t)dz);
+ 
+-#elif defined(_MSC_VER) && defined(_WIN64)
++#elif defined(_MSC_VER) && defined(_M_AMD64)
+     unsigned __int64 dp = 0;
+     unsigned __int64 dz = _umul128(x, y, &dp);
+     ret.left  = RBIMPL_CAST((bool)dp);
+     ret.right = RBIMPL_CAST((size_t)dz);
+ 
++#elif defined(_MSC_VER) && defined(_M_ARM64)
++    ret.left  = __umulh(x, y) != 0;
++    ret.right = x * y;
++
+ #else
+     /* https://wiki.sei.cmu.edu/confluence/display/c/INT30-C.+Ensure+that+unsigned+integer+operations+do+not+wrap */
+     ret.left  = (y != 0) && (x > SIZE_MAX / y);
+diff --git a/include/ruby/win32.h b/include/ruby/win32.h
+index 197eb8a8027..18de3a17d82 100644
+--- a/include/ruby/win32.h
++++ b/include/ruby/win32.h
+@@ -125,8 +125,15 @@ typedef unsigned int uintptr_t;
+ #define O_SHARE_DELETE 0x20000000 /* for rb_w32_open(), rb_w32_wopen() */
+ 
+ typedef int clockid_t;
++#if defined(__MINGW32__)
++#undef CLOCK_PROCESS_CPUTIME_ID
++#undef CLOCK_THREAD_CPUTIME_ID
++#undef CLOCK_REALTIME_COARSE
++#endif
++#if defined(HAVE_CLOCK_GETTIME) && !defined(CLOCK_REALTIME)
+ #define CLOCK_REALTIME  0
+ #define CLOCK_MONOTONIC 1
++#endif
+ 
+ #undef utime
+ #undef lseek
+diff --git a/tool/lib/vcs.rb b/tool/lib/vcs.rb
+index 857b7928a45..915408a1666 100644
+--- a/tool/lib/vcs.rb
++++ b/tool/lib/vcs.rb
+@@ -545,7 +545,7 @@ def without_gitconfig
+       envs = (%w'HOME XDG_CONFIG_HOME' + ENV.keys.grep(/\AGIT_/)).each_with_object({}) do |v, h|
+         h[v] = ENV.delete(v)
+       end
+-      ENV['GIT_CONFIG_SYSTEM'] = NullDevice
++      ENV['GIT_CONFIG_SYSTEM'] = '/dev/null'
+       ENV['GIT_CONFIG_GLOBAL'] = global_config
+       yield
+     ensure
+@@ -553,7 +553,7 @@ def without_gitconfig
+     end
+ 
+     def global_config
+-      return NullDevice if SAFE_DIRECTORIES.empty?
++      return '/dev/null' if SAFE_DIRECTORIES.empty?
+       unless @gitconfig
+         @gitconfig = Tempfile.new(%w"vcs_ .gitconfig")
+         @gitconfig.close
+diff --git a/vm_dump.c b/vm_dump.c
+index e31d70c0e18..0611e3c9545 100644
+--- a/vm_dump.c
++++ b/vm_dump.c
+@@ -727,6 +727,14 @@ dump_thread(void *arg)
+                     frame.AddrFrame.Offset = context.Rbp;
+                     frame.AddrStack.Mode = AddrModeFlat;
+                     frame.AddrStack.Offset = context.Rsp;
++#elif defined(_M_ARM64) || defined(__aarch64__)
++                    mac = IMAGE_FILE_MACHINE_ARM64;
++                    frame.AddrPC.Mode = AddrModeFlat;
++                    frame.AddrPC.Offset = context.Pc;
++                    frame.AddrFrame.Mode = AddrModeFlat;
++                    frame.AddrFrame.Offset = context.Fp;
++                    frame.AddrStack.Mode = AddrModeFlat;
++                    frame.AddrStack.Offset = context.Sp;
+ #else	/* i386 */
+                     mac = IMAGE_FILE_MACHINE_I386;
+                     frame.AddrPC.Mode = AddrModeFlat;
+diff --git a/win32/Makefile.sub b/win32/Makefile.sub
+index ff3a43774ec..ee480be1701 100644
+--- a/win32/Makefile.sub
++++ b/win32/Makefile.sub
+@@ -329,6 +329,9 @@ COROUTINE_SRC = $(COROUTINE_OBJ:.obj=.asm)
+ !elseif "$(ARCH)" == "i386"
+ COROUTINE_OBJ = coroutine/win32/Context.obj
+ COROUTINE_SRC = $(COROUTINE_OBJ:.obj=.asm)
++!elseif "$(ARCH)" == "arm64"
++COROUTINE_OBJ = coroutine/arm64/Context.obj
++COROUTINE_SRC = $(COROUTINE_OBJ:.obj=.asm)
+ !else
+ COROUTINE_OBJ = coroutine/copy/Context.obj
+ COROUTINE_SRC = $(COROUTINE_OBJ:.obj=.c)
+@@ -676,7 +679,7 @@ $(CONFIG_H): $(MKFILES) $(srcdir)/win32/Makefile.sub $(win_srcdir)/Makefile.sub
+ #define _INTEGRAL_MAX_BITS 64
+ #endif
+ #define SIZEOF_OFF_T 8
+-!if "$(ARCH)" == "x64"
++!if "$(TARGET_OS)" == "mswin64"
+ #define SIZEOF_VOIDP 8
+ !else
+ #define SIZEOF_VOIDP 4
+@@ -698,7 +701,7 @@ $(CONFIG_H): $(MKFILES) $(srcdir)/win32/Makefile.sub $(win_srcdir)/Makefile.sub
+ #define NUM2CLOCKID(v) NUM2INT(v)
+ #define SIZEOF_CLOCK_T 4
+ #define SIZEOF_RLIM_T 0
+-!if "$(ARCH)" == "x64"
++!if "$(TARGET_OS)" == "mswin64"
+ #define SIZEOF_SIZE_T 8
+ #define SIZEOF_PTRDIFF_T 8
+ #define SIZEOF_INTPTR_T 8
+@@ -805,7 +808,7 @@ $(CONFIG_H): $(MKFILES) $(srcdir)/win32/Makefile.sub $(win_srcdir)/Makefile.sub
+ #define HAVE_INTPTR_T 1
+ #define HAVE_UINTPTR_T 1
+ #define HAVE_SSIZE_T 1
+-!if "$(ARCH)" == "x64"
++!if "$(TARGET_OS)" == "mswin64"
+ #define ssize_t __int64
+ #define PRI_PTR_PREFIX "I64"
+ !else
+@@ -1283,6 +1286,9 @@ $(ruby_pc): $(RBCONFIG)
+ {$(srcdir)/coroutine/win64}.asm{coroutine/win64}.obj:
+ 	$(ECHO) assembling $(<:\=/)
+ 	$(Q) $(AS) $(ASFLAGS) $(XCFLAGS) $(CPPFLAGS) $(COUTFLAG)$@ -c $(<:\=/)
++{$(srcdir)/coroutine/arm64}.asm{coroutine/arm64}.obj:
++	$(ECHO) assembling $(<:\=/)
++	$(Q) $(AS) $(ASFLAGS) -o $@ $(<:\=/)
+ 
+ {$(srcdir)/enc/trans}.c.obj:
+ 	$(ECHO) compiling $(<:\=/)
+diff --git a/win32/mkexports.rb b/win32/mkexports.rb
+index 40f055dee74..c96f80f46b8 100755
+--- a/win32/mkexports.rb
++++ b/win32/mkexports.rb
+@@ -114,6 +114,7 @@ def each_export(objs)
+         case filetype
+         when /OBJECT/, /LIBRARY/
+           l.chomp!
++          next if (/^ .*\(pick any\)$/ =~ l)...true
+           next if /^[[:xdigit:]]+ 0+ UNDEF / =~ l
+           next unless /External/ =~ l
+           next if /(?:_local_stdio_printf_options|v(f|sn?)printf(_s)?_l)\Z/ =~ l
+@@ -151,7 +152,9 @@ def exports(*)
+   end
+ 
+   def each_line(objs, &block)
+-    IO.foreach("|#{self.class.nm} --extern --defined #{objs.join(' ')}", &block)
++    IO.popen("#{self.class.nm} --extern-only --defined-only #{objs.join(' ')}") do |f|
++      f.each_line(&block)
++    end
+   end
+ 
+   def each_export(objs)
+diff --git a/win32/setup.mak b/win32/setup.mak
+index 2ae4e1cfd53..b8e6134901d 100644
+--- a/win32/setup.mak
++++ b/win32/setup.mak
+@@ -197,8 +197,8 @@ echo ABI_VERSION = RUBY_ABI_VERSION
+ #endif
+ set /a MSC_VER = _MSC_VER
+ #if _MSC_VER >= 1920
+-set /a MSC_VER_LOWER = MSC_VER/20*20+0
+-set /a MSC_VER_UPPER = MSC_VER/20*20+19
++set /a MSC_VER_LOWER = 1920
++set /a MSC_VER_UPPER = 1959
+ #elif _MSC_VER >= 1900
+ set /a MSC_VER_LOWER = MSC_VER/10*10+0
+ set /a MSC_VER_UPPER = MSC_VER/10*10+9
+@@ -227,7 +227,9 @@ RUBY_SO_NAME = $(RUBY_SO_NAME)
+ 
+ -generic-: nul
+ 	@$(CPP) <<conftest.c 2>nul | findstr = >>$(MAKEFILE)
+-#if defined _M_X64
++#if defined _M_ARM64
++MACHINE = arm64
++#elif defined _M_X64
+ MACHINE = x64
+ #else
+ MACHINE = x86
+@@ -241,6 +243,8 @@ MACHINE = x86
+ 	@echo MACHINE = alpha>>$(MAKEFILE)
+ -x64-: -osname64-
+ 	@echo MACHINE = x64>>$(MAKEFILE)
++-arm64-: -osname64-
++	@echo MACHINE = arm64>>$(MAKEFILE)
+ -ix86-: -osname32-
+ 	@echo MACHINE = x86>>$(MAKEFILE)
+ 
+diff --git a/win32/win32.c b/win32/win32.c
+index 48b1c5117e5..b1544ce2b31 100644
+--- a/win32/win32.c
++++ b/win32/win32.c
+@@ -2603,6 +2603,67 @@ set_pioinfo_extra(void)
+     char *pend = p;
+     /* _osfile(fh) & FDEV */
+ 
++#if defined(_M_ARM64) || defined(__aarch64__)
++#define IS_INSN(pc, name) ((*(pc) & name##_mask) == name##_id)
++    const int max_num_inst = 500;
++    uint32_t *start = (uint32_t*)p;
++    uint32_t *end_limit = (start + max_num_inst);
++    uint32_t *pc = start;
++
++    if (!p) {
++        fprintf(stderr, "_isatty proc not found in " UCRTBASE "\n");
++        _exit(1);
++    }
++
++    /* end of function */
++    const uint32_t ret_id = 0xd65f0000;
++    const uint32_t ret_mask = 0xfffffc1f;
++    for(; pc < end_limit; pc++) {
++        if (IS_INSN(pc, ret)) {
++            break;
++        }
++    }
++    if (pc == end_limit) {
++        fprintf(stderr, "end of _isatty not found in " UCRTBASE "\n");
++        _exit(1);
++    }
++
++    /* pioinfo instruction mark */
++    const uint32_t adrp_id = 0x90000000;
++    const uint32_t adrp_mask = 0x9f000000;
++    const uint32_t add_id = 0x11000000;
++    const uint32_t add_mask = 0x7fc00000;
++    for(; pc > start; pc--) {
++        if (IS_INSN(pc, adrp) && IS_INSN(pc + 1, add)) {
++            break;
++        }
++    }
++    if(pc == start) {
++        fprintf(stderr, "pioinfo mark not found in " UCRTBASE "\n");
++        _exit(1);
++    }
++
++    /* We now point to instructions that load address of __pioinfo:
++     * adrp x8, 0x1801d8000
++     * add  x8, x8, #0xdb0
++     * https://devblogs.microsoft.com/oldnewthing/20220809-00/?p=106955
++     */
++    const uint32_t adrp_insn = *pc;
++    const uint32_t adrp_immhi = (adrp_insn & 0x00ffffe0) >> 5;
++    const uint32_t adrp_immlo = (adrp_insn & 0x60000000) >> (5 + 19 + 5);
++    const int64_t  adrp_sign  = (adrp_insn & 0x00800000) ? ~0x001fffff : 0;
++    /* imm = SignExtend(immhi:immlo:Zeros(12), 64) */
++    const int64_t adrp_imm = (adrp_sign | (adrp_immhi << 2) | adrp_immlo) << 12;
++    /* base = PC64<63:12>:Zeros(12) */
++    const uint64_t adrp_base = (uint64_t)pc & 0xfffffffffffff000;
++
++    const uint32_t add_insn = *(pc + 1);
++    const uint64_t add_imm = (add_insn & 0x3ffc00) >> (5 + 5);
++
++    __pioinfo = (ioinfo**)(adrp_base + adrp_imm + add_imm);
++#else /* _M_ARM64 */
++    char *pend = p;
++
+ # ifdef _WIN64
+     int32_t rel;
+     char *rip;
+@@ -2652,7 +2713,8 @@ set_pioinfo_extra(void)
+ #else
+     __pioinfo = *(ioinfo***)(p);
+ #endif
+-#endif
++#endif /* _M_ARM64 */
++#endif /* RUBY_MSVCRT_VERSION >= 140 */
+     int fd;
+ 
+     fd = _open("NUL", O_RDONLY);
+@@ -4809,6 +4871,7 @@ gettimeofday(struct timeval *tv, struct timezone *tz)
+     return 0;
+ }
+ 
++#if !defined(__MINGW32__) || !defined(HAVE_CLOCK_GETTIME)
+ /* License: Ruby's */
+ int
+ clock_gettime(clockid_t clock_id, struct timespec *sp)
+@@ -4848,7 +4911,9 @@ clock_gettime(clockid_t clock_id, struct timespec *sp)
+         return -1;
+     }
+ }
++#endif
+ 
++#if !defined(__MINGW32__) || !defined(HAVE_CLOCK_GETRES)
+ /* License: Ruby's */
+ int
+ clock_getres(clockid_t clock_id, struct timespec *sp)
+@@ -4876,6 +4941,7 @@ clock_getres(clockid_t clock_id, struct timespec *sp)
+         return -1;
+     }
+ }
++#endif
+ 
+ /* License: Ruby's */
+ static char *
