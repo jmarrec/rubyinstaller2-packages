@@ -67,12 +67,12 @@ build() {
   CPPFLAGS+=" -DFD_SETSIZE=2048"
   CFLAGS="-O3 -fno-fast-math -fstack-protector-strong"
   LDFLAGS="-pipe -s -fstack-protector-strong"
-  configure_extra_vars=()
+  configure_extra_vars=(ac_cv_prog_cc_c23=no)
   make_jobs=""
 
   if [[ "${MSYSTEM}" == "CLANGARM64" ]]; then
     LDFLAGS+=" -lpthread"
-    configure_extra_vars+=(--with-coroutine=arm64 extra_warnflags="-Wno-shorten-64-to-32" ac_cv_prog_cc_c23=no)
+    configure_extra_vars+=(--with-coroutine=arm64 extra_warnflags="-Wno-shorten-64-to-32")
     # Parallel make crashes clang on this toolchain (corrupted/truncated
     # output, no clean error -- looks like resource pressure from several
     # header-heavy translation units compiling at once). Force serial.
