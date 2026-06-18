@@ -80,7 +80,7 @@ jobs:
       env:
         GPGPASSWD: ${{ secrets.GPGPASSWD }}
       run: |
-        ridk exec bash -c "source 'ci-library.sh'; deploy_enabled && cd artifacts && create_pacman_repository 'ci.ri2'"
+        ridk exec bash -c "source 'ci-library.sh'; deploy_enabled && cd artifacts && create_pacman_repository 'jmarrec.ri2'"
 
     - name: Backup pacman database as artifacts
       uses: actions/upload-artifact@v4
