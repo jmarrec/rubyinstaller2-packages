@@ -435,11 +435,14 @@ index 2ae4e1cfd53..b8e6134901d 100644
  	@echo MACHINE = x86>>$(MAKEFILE)
  
 diff --git a/win32/win32.c b/win32/win32.c
-index 48b1c5117e5..b1544ce2b31 100644
+index 48b1c5117e5..5726c41a436 100644
 --- a/win32/win32.c
 +++ b/win32/win32.c
-@@ -2603,6 +2603,67 @@ set_pioinfo_extra(void)
-     char *pend = p;
+@@ -2600,9 +2600,69 @@ set_pioinfo_extra(void)
+      * * https://bugs.ruby-lang.org/issues/18605
+      */
+     char *p = (char*)get_proc_address(UCRTBASE, "_isatty", NULL);
+-    char *pend = p;
      /* _osfile(fh) & FDEV */
  
 +#if defined(_M_ARM64) || defined(__aarch64__)
@@ -506,7 +509,7 @@ index 48b1c5117e5..b1544ce2b31 100644
  # ifdef _WIN64
      int32_t rel;
      char *rip;
-@@ -2652,7 +2713,8 @@ set_pioinfo_extra(void)
+@@ -2652,7 +2712,8 @@ set_pioinfo_extra(void)
  #else
      __pioinfo = *(ioinfo***)(p);
  #endif
@@ -516,7 +519,7 @@ index 48b1c5117e5..b1544ce2b31 100644
      int fd;
  
      fd = _open("NUL", O_RDONLY);
-@@ -4809,6 +4871,7 @@ gettimeofday(struct timeval *tv, struct timezone *tz)
+@@ -4809,6 +4870,7 @@ gettimeofday(struct timeval *tv, struct timezone *tz)
      return 0;
  }
  
@@ -524,7 +527,7 @@ index 48b1c5117e5..b1544ce2b31 100644
  /* License: Ruby's */
  int
  clock_gettime(clockid_t clock_id, struct timespec *sp)
-@@ -4848,7 +4911,9 @@ clock_gettime(clockid_t clock_id, struct timespec *sp)
+@@ -4848,7 +4910,9 @@ clock_gettime(clockid_t clock_id, struct timespec *sp)
          return -1;
      }
  }
@@ -534,7 +537,7 @@ index 48b1c5117e5..b1544ce2b31 100644
  /* License: Ruby's */
  int
  clock_getres(clockid_t clock_id, struct timespec *sp)
-@@ -4876,6 +4941,7 @@ clock_getres(clockid_t clock_id, struct timespec *sp)
+@@ -4876,6 +4940,7 @@ clock_getres(clockid_t clock_id, struct timespec *sp)
          return -1;
      }
  }
