@@ -31,7 +31,8 @@ source=("https://cache.ruby-lang.org/pub/ruby/${pkgver2%.*}/${_realname}-${pkgve
         0012-Fix-arm64-coroutine-implementation-on-Windows-TEB-sa.patch
         0013-Use-gperf-3.1-to-generate-ANSI-C-code.patch
         ruby.ico
-        rubyw.ico)
+        rubyw.ico
+        placeholder.manifest.xml)
 
 # To update SHA256 hashs run: ridk exec sh -c "updpkgsums PKGBUILD"
 
@@ -46,7 +47,8 @@ sha256sums=('4b352d0f7ec384e332e3e44cdbfdcd5ff2d594af3c8296b5636c710975149e23'
             '3fb538320d701027382393ae05e75716be397a011595ec9e6a5b6cea719e62da'
             '0ef1ce0773f95b3ddd507fb9db3750fc66c3025e0f0ad9124dfdfe95b1c291f4'
             '6c80ba2ca49840e387a08b7fedc6e7acd298ac2ec853155209efb2af20397b22'
-            'c30fb04ac0e88ba634daaa811a81ea5a75027646617b895acd14df9518a4a55a')
+            'c30fb04ac0e88ba634daaa811a81ea5a75027646617b895acd14df9518a4a55a'
+            'c7a555d4826453efe7e33a2ebf78462b1fa665dffd7e4972143b48b1c9c71375')
 
 prepare() {
   cd ${srcdir}/${_realname}-${pkgver2}
@@ -69,13 +71,13 @@ build() {
 
   CPPFLAGS+=" -DFD_SETSIZE=2048"
   CFLAGS="-O3 -fno-fast-math -fstack-protector-strong"
-  LDFLAGS="-pipe -s -fstack-protector-strong"
   configure_extra_vars=()
   make_jobs=""
+  ldflags_extra=""
 
   if [[ "${MSYSTEM}" == "CLANGARM64" ]]; then
-    LDFLAGS+=" -lpthread"
-    configure_extra_vars+=(--with-coroutine=arm64 extra_warnflags="-Wno-shorten-64-to-32" ac_cv_prog_cc_c23=no)
+    ldflags_extra+=" -lpthread"
+    configure_extra_vars+=(--with-coroutine=arm64 ac_cv_prog_cc_c23=no)
     # Parallel make crashes clang on this toolchain (corrupted/truncated
     # output, no clean error -- looks like resource pressure from several
     # header-heavy translation units compiling at once). Force serial.
@@ -89,12 +91,25 @@ build() {
 
   cp ${srcdir}/*.ico .
 
+  # clang/lld doesn't embed a default manifest in EXEs/DLLs like GCC's mingw
+  # toolchain does, which breaks the SxS DLL-redirection trick used to bundle
+  # MSYS2 runtime DLLs (see recipes/sandbox/60-side-by-side-assembly*.rake in
+  # rubyinstaller2). Link in a placeholder manifest resource so there's
+  # always one to patch in place, regardless of toolchain.
+  cp ${srcdir}/placeholder.manifest.xml .
+  echo "2 24 placeholder.manifest.xml" > placeholder-manifest-dll.rc
+  windres --input placeholder-manifest-dll.rc --output ${srcdir}/build-${MINGW_CHOST}/placeholder-manifest-dll.res --output-format=coff
+  PLACEHOLDER_DLL_RES=`cygpath -m ${srcdir}/build-${MINGW_CHOST}/placeholder-manifest-dll.res`
+
+  LDFLAGS="-pipe -s -fstack-protector-strong ${PLACEHOLDER_DLL_RES}${ldflags_extra}"
+
   ../${_realname}-${pkgver2}/configure \
     --prefix=${MINGW_PREFIX} \
     --build=${MINGW_CHOST} \
     --host=${MINGW_CHOST} \
     --target=${MINGW_CHOST} \
     --with-out-ext=readline,pty,syslog \
+    extra_warnflags="-Wno-shorten-64-to-32 -Wno-dll-attribute-on-redeclaration" \
     "${configure_extra_vars[@]}"
 
   make ${make_jobs} showflags main
@@ -118,5 +133,10 @@ package() {
     install ${srcdir}/ruby-${pkgver2}/bin/${script} \
       ${pkgdir}${MINGW_PREFIX}/bin/
   done
+
+  # Remove placeholder manifest from packaged rbconfig
+  # The flags are inherited from the ruby build but not intended for builds on the target system
+  PLACEHOLDER_DLL_RES=`cygpath -m ${srcdir}/build-${MINGW_CHOST}/placeholder-manifest-dll.res`
+  sed -i "s# ${PLACEHOLDER_DLL_RES}##g" ${pkgdir}${MINGW_PREFIX}/lib/ruby/*/*/rbconfig.rb
 }
 
